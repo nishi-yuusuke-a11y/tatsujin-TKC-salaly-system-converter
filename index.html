@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>達人 → FXクラウド給与 社員情報変換ツール</title>
+<style>
+:root{--navy:#12305c;--gold:#b8933f;--bg:#f4f6f9;--line:#d7dde6;--ok:#1c7c4a;--warn:#a8600a;--err:#b32020;}
+*{box-sizing:border-box;}
+body{margin:0;font-family:"Meiryo","Yu Gothic UI","Hiragino Kaku Gothic ProN",sans-serif;background:var(--bg);color:#1c2430;font-size:14px;line-height:1.6;}
+header{background:var(--navy);color:#fff;padding:14px 20px;}
+header h1{margin:0;font-size:17px;letter-spacing:.03em;}
+header p{margin:4px 0 0;font-size:12px;opacity:.85;}
+main{max-width:1200px;margin:0 auto;padding:18px 16px 70px;}
+section{background:#fff;border:1px solid var(--line);border-radius:6px;margin-bottom:16px;}
+section>h2{margin:0;padding:10px 14px;font-size:15px;background:#eef2f7;border-bottom:1px solid var(--line);border-radius:6px 6px 0 0;}
+section>h2 span.step{display:inline-block;background:var(--navy);color:#fff;width:22px;height:22px;line-height:22px;text-align:center;border-radius:11px;font-size:12px;margin-right:8px;}
+.body{padding:14px;}
+#drop{border:2px dashed #9fb0c6;border-radius:6px;padding:26px;text-align:center;background:#fbfcfe;cursor:pointer;}
+#drop.hot{border-color:var(--gold);background:#fffaf0;}
+#drop b{color:var(--navy);}
+.note{font-size:12px;color:#5a6675;}
+table{border-collapse:collapse;width:100%;font-size:12px;}
+th,td{border:1px solid var(--line);padding:4px 6px;text-align:left;vertical-align:top;}
+th{background:#f0f3f8;position:sticky;top:0;z-index:1;}
+.scroll{max-height:320px;overflow:auto;border:1px solid var(--line);}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:10px 18px;}
+label.f{display:block;font-size:12px;margin-bottom:2px;color:#3b475a;}
+label.f b{color:var(--err);font-size:11px;}
+input[type=text],input[type=number],select{width:100%;padding:4px 6px;border:1px solid #b9c4d2;border-radius:3px;font-size:13px;font-family:inherit;}
+button{background:var(--navy);color:#fff;border:0;border-radius:4px;padding:8px 16px;font-size:14px;cursor:pointer;font-family:inherit;}
+button.sub{background:#5b6b80;}
+button.mini{padding:3px 10px;font-size:12px;}
+button:disabled{background:#aab3bf;cursor:not-allowed;}
+.msg{padding:8px 10px;border-radius:4px;margin:8px 0;font-size:13px;}
+.msg.ok{background:#e7f5ec;border:1px solid #b5dcc5;color:var(--ok);}
+.msg.warn{background:#fdf3e3;border:1px solid #f0d4a4;color:var(--warn);}
+.msg.err{background:#fdeaea;border:1px solid #f2bcbc;color:var(--err);}
+.msg.info{background:#eaf1fb;border:1px solid #bdd0ec;color:var(--navy);}
+.hide{display:none;}
+.flex{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+fieldset{border:1px solid var(--line);border-radius:4px;margin:0 0 12px;padding:10px 12px;}
+legend{font-size:12px;color:var(--navy);font-weight:bold;padding:0 4px;}
+.chk{font-size:13px;}
+.pill{display:inline-block;font-size:11px;padding:1px 7px;border-radius:9px;background:#eceff4;color:#4a5668;margin-left:6px;}
+.pill.fix{background:#e7f5ec;color:var(--ok);}
+.pill.est{background:#fdf3e3;color:var(--warn);}
+</style>
+</head>
+<body>
+<header>
+  <h1>達人（年調・法定調書の達人） → FXクラウド給与 社員情報変換ツール</h1>
+  <p>処理はすべてブラウザ内で完結します（サーバー送信なし）。個人データはこのファイルに保存されません。</p>
+</header>
+<main>
+
+<section>
+  <h2><span class="step">1</span>読込（達人の社員情報一覧）</h2>
+  <div class="body">
+    <div id="drop">
+      <b>ここに「社員情報一覧.xlsx」をドラッグ＆ドロップ</b><br>
+      <span class="note">またはクリックしてファイルを選択（.xlsx / .csv）</span>
+      <input type="file" id="file" accept=".xlsx,.csv" class="hide">
+    </div>
+    <div id="loadMsg"></div>
+    <div id="loadInfo" class="hide">
+      <div class="flex" style="margin:8px 0">
+        <label class="chk"><input type="checkbox" id="onlyEmployee" checked> 「個人種別＝従業員」の行のみ変換</label>
+        <label class="chk"><input type="checkbox" id="skipNoName" checked> 氏名が空の行をスキップ</label>
+      </div>
+      <div class="scroll"><table id="srcTable"></table></div>
+      <p class="note">※先頭20件のみ表示。達人側でマスクされた個人番号は取り込みません（FX側は数字12桁＋チェックディジット必須のため空欄で出力します）。</p>
+    </div>
+  </div>
+</section>
+
+<section id="secPer" class="hide">
+  <h2><span class="step">2</span>社員ごとの必須項目</h2>
+  <div class="body">
+    <p class="note">達人に存在しない／空欄の必須項目です。1件でもエラーがあるとFX側はファイル全体を読み込めません。</p>
+    <div class="flex" style="margin-bottom:8px">
+      <span class="note">一括設定：</span>
+      <select id="bulkField" style="width:auto"></select>
+      <input type="text" id="bulkValue" style="width:180px" placeholder="値">
+      <button class="sub mini" id="bulkApply">全員に適用</button>
+    </div>
+    <div class="scroll" style="max-height:420px"><table id="perTable"></table></div>
+  </div>
+</section>
+
+<section id="secOpt" class="hide">
+  <h2><span class="step">3</span>変換設定</h2>
+  <div class="body">
+    <fieldset>
+      <legend>労働保険・社会保険</legend>
+      <div class="grid">
+        <div><label class="f">労災:被保険者 <b>必須</b></label><select id="rousaiHi"><option>該当</option><option>非該当</option></select></div>
+        <div><label class="f">労災:被保険者種類 <b>必須</b></label><input type="text" id="rousaiKind" value="その他" list="rousaiList"><datalist id="rousaiList"><option>その他</option><option>臨時労働者</option></datalist></div>
+        <div><label class="f">雇用:被保険者 <b>必須</b></label><select id="koyoHi"><option>非該当</option><option>該当</option></select></div>
+        <div><label class="f">雇用:被保険者種類</label><input type="text" id="koyoKind" value="" list="koyoList" placeholder="（空欄）"><datalist id="koyoList"><option>その他</option><option>短期特例被保険者</option><option>日雇労働被保険者</option></datalist></div>
+      </div>
+      <p class="note">「労災:被保険者種類」はFXの選択肢と表記が一致している必要があります。エラーになる場合は、FXの［社員］画面で実際に表示されている語句をそのまま入力してください。</p>
+    </fieldset>
+    <fieldset>
+      <legend>家族データの既定値 <span class="pill est">達人に無い項目は既定値</span></legend>
+      <div class="grid">
+        <div><label class="f">配偶者の扶養区分 <b>必須</b></label><select id="spKbn"><option>源泉控除対象配偶者</option><option>源泉控除対象配偶者以外の配偶者</option><option>対象外</option></select></div>
+        <div><label class="f">扶養親族の扶養区分 <b>必須</b></label><select id="depKbn"><option>対象(主たる給与の扶養)</option><option>対象(従たる給与の扶養)</option><option>対象外</option></select></div>
+        <div><label class="f">収入・所得の入力方法 <b>必須</b></label><select id="shotoku"><option>所得の見積額を入力</option><option>収入を入力して所得を計算</option></select></div>
+        <div><label class="f">社会保険の被扶養者 <b>必須</b></label><select id="shakai"><option>該当</option><option>非該当</option></select></div>
+        <div><label class="f">住所区分 <b>必須</b></label><select id="addrKbn"><option>社員本人と同じ</option><option>社員本人と別住所</option></select></div>
+        <div><label class="f">扶養区分(令和8年分以後) <b>必須</b></label><select id="r8auto"><option value="1">扶養区分から自動設定</option><option value="0">空欄（FX側で入力）</option></select></div>
+      </div>
+      <p class="note">同居老親区分・障害者区分は達人に情報が無いため、配偶者以外は「対象外」で出力します。</p>
+    </fieldset>
+    <fieldset>
+      <legend>本人（基本情報等）の既定値</legend>
+      <div class="scroll" style="max-height:240px"><table id="defTable"></table></div>
+    </fieldset>
+  </div>
+</section>
+
+<section id="secOut" class="hide">
+  <h2><span class="step">4</span>チェック・出力</h2>
+  <div class="body">
+    <div class="flex"><button id="run">変換してチェック</button><span id="runMsg" class="note"></span></div>
+    <div id="result" class="hide">
+      <div id="resMsg"></div>
+      <div class="flex" style="margin:10px 0">
+        <button id="dl1" class="sub">社員読込用_基本情報等.csv</button>
+        <button id="dl2" class="sub">社員読込用_家族.csv</button>
+        <span class="note">FX側は「基本情報等」→「家族」の順に読み込んでください。</span>
+      </div>
+      <h3 style="font-size:13px;margin:14px 0 4px">基本情報等（先頭10件・主要列）</h3>
+      <div class="scroll"><table id="prev1"></table></div>
+      <h3 style="font-size:13px;margin:14px 0 4px">家族（先頭15件）</h3>
+      <div class="scroll"><table id="prev2"></table></div>
+    </div>
+  </div>
+</section>
+
+</main>
+<script>
+"use strict";
+
+const HDR_BASE = ["社員番号","社員氏名(姓)","社員氏名(名)","社員氏名ﾌﾘｶﾞﾅ(姓)","社員氏名ﾌﾘｶﾞﾅ(名)","旧姓","給与・賞与明細に旧姓を使用","個人番号","性別","生年月日","郵便番号","住所上段","住所下段","住所ﾌﾘｶﾞﾅ上段","住所ﾌﾘｶﾞﾅ下段","住所地市町村コード","住所地市町村名","住民税納付先市町村コード","住民税納付先市町村名","電話番号１","電話番号２","Ｅメール１","Ｅメール２","入社日","事業所コード","事業所名","部署コード","部署名","仕訳計上部門コード","仕訳計上部門名","仕訳の種類コード","仕訳の種類名","役社員区分","常勤・非常勤","役職名","職種コード","職種名","職階コード","職階名","給与体系コード","給与体系名","賞与体系コード","賞与体系名","税表区分","税額表区分","租税条約による減免","減免後の税率(%)","異動年月日","提供方法:給与・賞与明細","提供方法:扶養控除等申告書等","提供方法:ＩＤ","提供方法:メール送信先","本人:障害者控除","本人:ひとり親等控除","本人:ひとり親等控除(住民税)","本人:勤労学生控除","本人:災害者","本人:徴収猶予税額","本人:外国人","世帯主:氏名","世帯主:本人との続柄","配偶者の有無","障害者等の内容","障害者の異動月日及び事由","16歳未満扶養(数)","一般扶養(数)","特定扶養(数)","老人扶養(数)","老人扶養の内、同居老親(数)","特別障害者(数)","特別障害者の内、同居特別(数)","一般障害者(数)","前職分:支払者氏名又は名称","前職分:郵便番号","前職分:住所又は所在地上段","前職分:住所又は所在地下段","前職分:退職年月日","前職分:支払金額","前職分:源泉徴収税","前職分:社会保険料等","前職分:社会保険料等の金額の「内」","住民税:受給者番号","報酬月額","社保:種別","社保:月給者・日給者","社保:短時間労働者","健保:被保険者","健保:等級","健保:標準報酬月額","健保:保険料の自動計算","健保:従業員負担分保険料","健保:事業主負担分保険料","健保:資格取得日","健保:被保険者証番号","介護:被保険者区分","介護:保険料の自動計算","介護:従業員負担分保険料","介護:事業主負担分保険料","介護:資格取得日","厚年:被保険者","厚年:等級","厚年:標準報酬月額","厚年:保険料の自動計算","厚年:従業員負担分保険料","厚年:事業主負担分保険料","厚年:資格取得日","基礎年金番号","厚年:被保険者整理番号","基金:加入員","基金:掛金の自動計算","基金:従業員負担分掛金","基金:事業主負担分掛金","基金:資格取得日","基金:基金加入員番号","確定拠出:加入員","確定拠出:型","確定拠出:納付方法","確定拠出:掛金(源泉控除分)","確定拠出:資格取得日","雇用:被保険者","雇用:被保険者種類","雇用:給与から保険料控除","雇用:資格取得日","雇用:被保険者番号","労災:被保険者","労災:被保険者種類","時間外割増率の参照先A","時間外割増率A(%)","時間外割増率の参照先B","時間外割増率B(%)","時間外割増率の参照先C","時間外割増率C(%)","時間外割増率の参照先D","時間外割増率D(%)","時間外割増率の参照先E","時間外割増率E(%)","時間外割増率の参照先F","時間外割増率F(%)","時間外割増率の参照先G","時間外割増率G(%)","時間外割増率の参照先H","時間外割増率H(%)","緊急連絡先:氏名","緊急連絡先:郵便番号","緊急連絡先:住所上段","緊急連絡先:住所下段","緊急連絡先:電話番号","緊急連絡先:携帯番号","緊急連絡先:続柄","緊急連絡先:備考","保証人:氏名","保証人:郵便番号","保証人:住所上段","保証人:住所下段","保証人:電話番号","保証人:携帯番号","保証人:続柄","保証人:備考","在留資格","在留期限","在留:備考","賞罰記録","血液型","血液型RH","住居","出身地","最終学歴:種類","最終学歴:卒業年月","最終学歴:学校名","最終学歴:学部名","特記事項","休業中","休業の種類","給与分の社会保険料","賞与分の社会保険料","退職日","退職区分","退職事由","退職日より後の源泉所得税を乙欄で計算","退職済み区分","付箋貼付区分","付箋メモ","厚年:子ども・子育て拠出金","有休1日の時間数","有休の付与・繰越","有休付与パターン参照先","有休付与パターンコード","有休付与パターン名","有休付与起算日","特定親族(数)","提供方法:利用停止日","子ども・子育て:支援金の自動計算","子ども・子育て:従業員負担分支援金","子ども・子育て:事業主負担分支援金"];
+
+const HDR_FAM = ["社員番号","社員氏名","家族:氏名(姓)","家族:氏名(名)","家族:氏名ﾌﾘｶﾞﾅ(姓)","家族:氏名ﾌﾘｶﾞﾅ(名)","家族:個人番号","家族:続柄","家族:生年月日","家族:扶養区分","家族:同居老親区分","家族:障害者区分","家族:住所区分","家族:郵便番号","家族:住所上段","家族:住所下段","家族:収入・所得の入力方法","家族:給与収入","家族:公的年金収入","家族:給与所得","家族:公的年金所得","家族:上記以外の所得","家族:所得の見積額","家族:非居住者である親族","家族:異動月日及び事由","家族:死別した日","家族:社会保険の被扶養者","家族:他の所得者氏名","家族:他の所得者続柄","家族:他の所得者住所","家族:退職手当等を有する配偶者・扶養親族","家族:退職所得を除く所得の見積額","家族:障害者区分(住民税)","家族:扶養区分(令和8年分以後)","家族:特定扶養・特定親族(令和8年分以後)"];
+
+/* ============================================================
+   FXクラウド給与「社員の読込レイアウト」に基づく定義
+   ※列名・区分値のみ。個人データは含みません。
+   ============================================================ */
+
+/* 読込み不可の列（出力しても無視されるため常に空欄） */
+const RO_BASE = ["提供方法:ＩＤ","16歳未満扶養(数)","一般扶養(数)","特定扶養(数)","老人扶養(数)","老人扶養の内、同居老親(数)","特別障害者(数)","特別障害者の内、同居特別(数)","一般障害者(数)","健保:等級","健保:標準報酬月額","厚年:等級","厚年:標準報酬月額","退職済み区分","付箋貼付区分","付箋メモ","特定親族(数)","提供方法:利用停止日"];
+const RO_FAM = ["社員氏名"];
+
+/* 必須項目  ★v3: 「労災:被保険者種類」「有休1日の時間数」を追加（読込エラー実績による） */
+const REQ_BASE = ["社員番号","性別","生年月日","事業所コード","部署コード","役社員区分","給与体系コード","税表区分","提供方法:給与・賞与明細","提供方法:扶養控除等申告書等","本人:障害者控除","本人:ひとり親等控除","本人:ひとり親等控除(住民税)","本人:勤労学生控除","本人:災害者","本人:外国人","配偶者の有無","社保:種別","社保:月給者・日給者","健保:被保険者","厚年:被保険者","基金:加入員","確定拠出:加入員","雇用:被保険者","労災:被保険者","労災:被保険者種類","時間外割増率の参照先A","時間外割増率の参照先B","時間外割増率の参照先C","時間外割増率の参照先D","時間外割増率の参照先E","時間外割増率の参照先F","時間外割増率の参照先G","時間外割増率の参照先H","休業中"];
+const REQ_FAM = ["社員番号","家族:氏名(姓)","家族:氏名(名)","家族:扶養区分","家族:障害者区分","家族:住所区分","家族:収入・所得の入力方法","家族:非居住者である親族","家族:社会保険の被扶養者","家族:退職手当等を有する配偶者・扶養親族","家族:扶養区分(令和8年分以後)"];
+
+/* 文字数制限 z=全角換算 / h=半角文字数 */
+const LEN_BASE = {"社員氏名(姓)":{z:30},"社員氏名(名)":{z:30},"社員氏名ﾌﾘｶﾞﾅ(姓)":{h:30},"社員氏名ﾌﾘｶﾞﾅ(名)":{h:30},"旧姓":{z:10},"住所上段":{z:20},"住所下段":{z:20},"住所ﾌﾘｶﾞﾅ上段":{h:40},"住所ﾌﾘｶﾞﾅ下段":{h:40},"Ｅメール１":{h:50},"Ｅメール２":{h:50},"役職名":{z:10},"世帯主:氏名":{z:30},"世帯主:本人との続柄":{z:3}};
+const LEN_FAM = {"家族:氏名(姓)":{z:30},"家族:氏名(名)":{z:30},"家族:氏名ﾌﾘｶﾞﾅ(姓)":{h:30},"家族:氏名ﾌﾘｶﾞﾅ(名)":{h:30},"家族:続柄":{z:3},"家族:住所上段":{z:20},"家族:住所下段":{z:20}};
+
+/* 桁数・書式 */
+const FMT_BASE = {"社員番号":{digits:7},"事業所コード":{digits:4},"部署コード":{digits:3},"給与体系コード":{digits:4},"賞与体系コード":{digits:4},"職種コード":{digits:3},"職階コード":{digits:3},"有休付与パターンコード":{digits:3},"郵便番号":{zip:1},"個人番号":{mynum:1}};
+
+/* 選択肢 */
+const ENUM = {
+ "役社員区分":["役員","兼務役員","社員","嘱託","パート・アルバイト","その他"],
+ "常勤・非常勤":["","常勤","非常勤"],
+ "税表区分":["甲欄","乙欄","丙欄","非居住者","課税なし"],
+ "税額表区分":["","月額表","日額表"],
+ "租税条約による減免":["","適用あり","適用なし"],
+ "提供方法:給与・賞与明細":["書面","Web配信"],
+ "提供方法:扶養控除等申告書等":["書面","Web配信"],
+ "本人:障害者控除":["対象(一般)","対象(特別)","対象外"],
+ "本人:ひとり親等控除":["対象(ひとり親)","対象(寡婦)","対象外"],
+ "本人:ひとり親等控除(住民税)":["対象(ひとり親)","対象(寡婦)","対象外"],
+ "本人:勤労学生控除":["対象","対象外"],
+ "本人:災害者":["対象","対象外"],
+ "本人:外国人":["対象","対象外"],
+ "配偶者の有無":["あり","なし"],
+ "社保:種別":["一般","坑内員"],
+ "社保:月給者・日給者":["月給者","日給者"],
+ "社保:短時間労働者":["","該当","非該当"],
+ "健保:被保険者":["該当","非該当"],
+ "健保:保険料の自動計算":["","自動計算する","自動計算しない"],
+ "介護:被保険者区分":["","生年月日(年齢)に基づく自動判定","対象(被保険者)とする","対象としない"],
+ "介護:保険料の自動計算":["","自動計算する","自動計算しない"],
+ "厚年:被保険者":["該当","非該当"],
+ "厚年:保険料の自動計算":["","自動計算する","自動計算しない"],
+ "基金:加入員":["該当","非該当"],
+ "確定拠出:加入員":["該当","非該当"],
+ "雇用:被保険者":["該当","非該当"],
+ "雇用:給与から保険料控除":["","する","しない"],
+ "労災:被保険者":["該当","非該当"],
+ "休業中":["該当","非該当"],
+ "有休の付与・繰越":["付与・繰越する","付与・繰越しない"],
+ "有休付与パターン参照先":["","給与体系の設定を参照","社員ごとに設定"],
+ "子ども・子育て:支援金の自動計算":["","自動計算する","自動計算しない"],
+ "給与・賞与明細に旧姓を使用":["","使用する","使用しない"],
+ "性別":["男","女"]
+};
+const WARI = ["全社共通の割増率","給与体系別の割増率","部署別の割増率","社員ごとに設定"];
+for(let i=0;i<8;i++) ENUM["時間外割増率の参照先"+"ABCDEFGH"[i]]=WARI;
+
+/* 表記ゆれの確証が持てない項目は、選択肢照合ではなく参考候補の警告のみ行う */
+const SOFT_ENUM = {
+ "労災:被保険者種類":["その他","臨時労働者"],
+ "雇用:被保険者種類":["","その他","短期特例被保険者","日雇労働被保険者"]
+};
+
+const ENUM_FAM = {
+ "家族:扶養区分":["源泉控除対象配偶者","源泉控除対象配偶者以外の配偶者","対象(主たる給与の扶養)","対象(従たる給与の扶養)","対象外(主たる給与の扶養)","対象外(従たる給与の扶養)","対象外(他の所得者の扶養)","対象外"],
+ "家族:同居老親区分":["","対象","対象外"],
+ "家族:障害者区分":["対象(一般)","対象(特別)","対象(同居特別)","対象外"],
+ "家族:住所区分":["社員本人と同じ","社員本人と別住所"],
+ "家族:収入・所得の入力方法":["収入を入力して所得を計算","所得の内訳を入力","所得の見積額を入力"],
+ "家族:非居住者である親族":["非居住者・配偶者","非居住者・扶養親族(30歳未満又は70歳以上)","非居住者・扶養親族(30歳以上70歳未満、留学)","非居住者・扶養親族(30歳以上70歳未満、障害者)","非居住者・扶養親族(30歳以上70歳未満、38万円以上の支払)","非該当"],
+ "家族:社会保険の被扶養者":["該当","非該当"],
+ "家族:退職手当等を有する配偶者・扶養親族":["該当","非該当"],
+ "家族:障害者区分(住民税)":["","対象(一般)","対象(特別)","対象外"],
+ "家族:扶養区分(令和8年分以後)":["源泉控除対象配偶者","源泉控除対象配偶者以外の配偶者","源泉控除対象/16歳未満の扶養親族","他の所得者の扶養","主たる給与の扶養","従たる給与の扶養","対象外"],
+ "家族:特定扶養・特定親族(令和8年分以後)":["","特定扶養親族","特定親族"]
+};
+
+/* 社員ごとに指定する必須項目 */
+/* ★v4: 数字入力時に左0埋めする列と桁数 */
+const PAD_FIELDS = {"事業所コード":4,"部署コード":3,"給与体系コード":4};
+function padCode(v,len){
+  const t=String(v==null?"":v).replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).trim();
+  return /^\d+$/.test(t) && t.length<len ? t.padStart(len,"0") : t;
+}
+const PER_FIELDS = [
+  {key:"事業所コード", label:"事業所コード", def:"0001", type:"text", hint:"数字4桁（1→0001）"},
+  {key:"部署コード",   label:"部署コード",   def:"",     type:"text", hint:"数字3桁（1→001）"},
+  {key:"役社員区分",   label:"役社員区分",   def:"社員", type:"enum"},
+  {key:"給与体系コード",label:"給与体系コード",def:"",    type:"text", hint:"数字4桁（1→0001）"},
+  {key:"性別",        label:"性別",        def:"",     type:"enum"}
+];
+
+/* 本人側の共通デフォルト */
+const DEFAULTS = [
+  ["給与・賞与明細に旧姓を使用","使用しない"],
+  ["常勤・非常勤","常勤"],
+  ["税表区分","甲欄"],
+  ["税額表区分","月額表"],
+  ["租税条約による減免","適用なし"],
+  ["提供方法:給与・賞与明細","書面"],
+  ["提供方法:扶養控除等申告書等","書面"],
+  ["本人:障害者控除","対象外"],
+  ["本人:ひとり親等控除","対象外"],
+  ["本人:ひとり親等控除(住民税)","対象外"],
+  ["本人:勤労学生控除","対象外"],
+  ["本人:災害者","対象外"],
+  ["本人:外国人","対象外"],
+  ["世帯主:本人との続柄","本人"],
+  ["社保:種別","一般"],
+  ["社保:月給者・日給者","月給者"],
+  ["社保:短時間労働者","非該当"],
+  ["健保:被保険者","該当"],
+  ["健保:保険料の自動計算","自動計算する"],
+  ["介護:被保険者区分","生年月日(年齢)に基づく自動判定"],
+  ["介護:保険料の自動計算","自動計算する"],
+  ["厚年:被保険者","該当"],
+  ["厚年:保険料の自動計算","自動計算する"],
+  ["基金:加入員","非該当"],
+  ["確定拠出:加入員","非該当"],
+  ["時間外割増率の参照先A","全社共通の割増率"],
+  ["時間外割増率の参照先B","全社共通の割増率"],
+  ["時間外割増率の参照先C","全社共通の割増率"],
+  ["時間外割増率の参照先D","全社共通の割増率"],
+  ["時間外割増率の参照先E","全社共通の割増率"],
+  ["時間外割増率の参照先F","全社共通の割増率"],
+  ["時間外割増率の参照先G","全社共通の割増率"],
+  ["時間外割増率の参照先H","全社共通の割増率"],
+  ["休業中","非該当"],
+  ["子ども・子育て:支援金の自動計算","自動計算する"],
+  ["報酬月額",""]
+];
+
+/* ============================================================
+   XLSX / CSV 読込
+   ============================================================ */
+async function inflateRaw(buf){
+  if(typeof DecompressionStream==="undefined") throw new Error("このブラウザはxlsxの解凍に対応していません。CSVで読み込んでください。");
+  const stream=new Blob([buf]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+async function readZip(arrayBuffer){
+  const u8=new Uint8Array(arrayBuffer), dv=new DataView(arrayBuffer);
+  let eocd=-1;
+  for(let i=u8.length-22;i>=0 && i>u8.length-66000;i--){ if(dv.getUint32(i,true)===0x06054b50){eocd=i;break;} }
+  if(eocd<0) throw new Error("xlsxファイルとして読み取れませんでした。");
+  const cnt=dv.getUint16(eocd+10,true); let off=dv.getUint32(eocd+16,true);
+  const files={};
+  for(let i=0;i<cnt;i++){
+    if(dv.getUint32(off,true)!==0x02014b50) break;
+    const method=dv.getUint16(off+10,true), csize=dv.getUint32(off+20,true);
+    const nlen=dv.getUint16(off+28,true), elen=dv.getUint16(off+30,true), clen=dv.getUint16(off+32,true);
+    const lho=dv.getUint32(off+42,true);
+    const name=new TextDecoder("utf-8").decode(u8.subarray(off+46,off+46+nlen));
+    const lnlen=dv.getUint16(lho+26,true), lelen=dv.getUint16(lho+28,true);
+    const start=lho+30+lnlen+lelen;
+    files[name]={method,data:u8.subarray(start,start+csize)};
+    off+=46+nlen+elen+clen;
+  }
+  const out={};
+  for(const k in files){
+    if(!/\.(xml|rels)$/i.test(k)) continue;
+    const f=files[k];
+    out[k]=new TextDecoder("utf-8").decode(f.method===0?f.data:await inflateRaw(f.data));
+  }
+  return out;
+}
+function unesc(s){
+  return s.replace(/&#(\d+);/g,(m,d)=>String.fromCharCode(+d))
+          .replace(/&#x([0-9a-f]+);/gi,(m,h)=>String.fromCharCode(parseInt(h,16)))
+          .replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,"&");
+}
+function colIdx(ref){
+  const m=/^([A-Z]+)/.exec(ref); if(!m) return 0;
+  let n=0; for(const ch of m[1]) n=n*26+(ch.charCodeAt(0)-64);
+  return n-1;
+}
+function serialToStr(n){
+  const d=new Date(Date.UTC(1899,11,30)+n*86400000), p=x=>String(x).padStart(2,"0");
+  return d.getUTCFullYear()+"/"+p(d.getUTCMonth()+1)+"/"+p(d.getUTCDate());
+}
+async function parseXlsx(arrayBuffer){
+  const z=await readZip(arrayBuffer);
+  const shared=[];
+  if(z["xl/sharedStrings.xml"]){
+    for(const s of z["xl/sharedStrings.xml"].split(/<si[\s>]/).slice(1)){
+      let t="", m, re=/<t[^>]*>([\s\S]*?)<\/t>/g;
+      while((m=re.exec(s))) t+=unesc(m[1]);
+      shared.push(t);
+    }
+  }
+  const key=Object.keys(z).find(k=>/^xl\/worksheets\/sheet1\.xml$/.test(k))||Object.keys(z).find(k=>/^xl\/worksheets\/.*\.xml$/.test(k));
+  if(!key) throw new Error("シートが見つかりませんでした。");
+  const xml=z[key], rows=[]; let rm, rowRe=/<row[^>]*>([\s\S]*?)<\/row>/g;
+  while((rm=rowRe.exec(xml))){
+    const cells=[]; let cm, cRe=/<c([^>]*)>([\s\S]*?)<\/c>|<c([^>]*)\/>/g;
+    while((cm=cRe.exec(rm[1]))){
+      const attr=cm[1]||cm[3]||"", inner=cm[2]||"";
+      const rref=/r="([A-Z]+\d+)"/.exec(attr), ci=rref?colIdx(rref[1]):cells.length;
+      const t=/t="([^"]+)"/.exec(attr);
+      let v="";
+      if(t&&t[1]==="inlineStr"){ const im=/<t[^>]*>([\s\S]*?)<\/t>/.exec(inner); v=im?unesc(im[1]):""; }
+      else{ const vm=/<v>([\s\S]*?)<\/v>/.exec(inner); if(vm){ v=unesc(vm[1]); if(t&&t[1]==="s") v=shared[+v]||""; } }
+      cells[ci]=v;
+    }
+    for(let i=0;i<cells.length;i++) if(cells[i]===undefined) cells[i]="";
+    rows.push(cells);
+  }
+  return rows;
+}
+function parseCsvText(text){
+  const rows=[]; let row=[],cur="",q=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(q){ if(c==='"'){ if(text[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=c; }
+    else if(c==='"') q=true;
+    else if(c===","){ row.push(cur); cur=""; }
+    else if(c==="\n"){ row.push(cur); rows.push(row); row=[]; cur=""; }
+    else if(c!=="\r") cur+=c;
+  }
+  if(cur!==""||row.length){ row.push(cur); rows.push(row); }
+  return rows;
+}
+
+/* ============================================================
+   達人データ → 内部モデル
+   ============================================================ */
+const SRC={ code:"本人情報 コード", kana:"本人情報 フリガナ", name:"本人情報 氏名", sex:"本人情報 性別",
+  birth:"本人情報 生年月日", addr:"本人情報 住所", mail:"本人情報 メールアドレス",
+  ptype:"本人情報 個人種別", spExist:"配偶者情報 有無", spKana:"配偶者情報 フリガナ",
+  spName:"配偶者情報 氏名", spSex:"配偶者情報 性別", spBirth:"配偶者情報 生年月日" };
+
+let MODEL=null;
+
+function norm(s){ return String(s==null?"":s).replace(/\s+/g," ").trim(); }
+function zWidth(s){ let w=0; for(const c of String(s)){ w += /[\x20-\x7E\uFF61-\uFF9F]/.test(c)?0.5:1; } return w; }
+function toYmd(v){
+  const s=norm(v); if(!s) return "";
+  if(/^\d{8}$/.test(s)) return s.slice(0,4)+"/"+s.slice(4,6)+"/"+s.slice(6,8);
+  if(/^\d{4}[\/\-.]\d{1,2}[\/\-.]\d{1,2}$/.test(s)){ const p=s.split(/[\/\-.]/); return p[0]+"/"+p[1].padStart(2,"0")+"/"+p[2].padStart(2,"0"); }
+  if(/^\d{5}(\.\d+)?$/.test(s)) return serialToStr(parseFloat(s));
+  return s;
+}
+function isYmd(s){ return /^\d{4}\/\d{2}\/\d{2}$/.test(s); }
+function normHhmm(v){
+  const s=norm(v); if(!s) return "";
+  let m=/^(\d{1,2}):(\d{1,2})$/.exec(s);
+  if(m) return m[1]+":"+m[2].padStart(2,"0");
+  if(/^\d{1,2}$/.test(s)) return s+":00";
+  m=/^(\d{1,2})\.(\d+)$/.exec(s);
+  if(m) return m[1]+":"+String(Math.round(parseFloat("0."+m[2])*60)).padStart(2,"0");
+  return s;
+}
+function splitName(s){
+  const t=String(s==null?"":s).replace(/[\u3000\s]+/g," ").trim();
+  if(!t) return ["",""];
+  const i=t.indexOf(" ");
+  return i<0?[t,""]:[t.slice(0,i).trim(),t.slice(i+1).trim()];
+}
+function sexConv(s){ const t=norm(s); if(t.startsWith("男")) return "男"; if(t.startsWith("女")) return "女"; return ""; }
+function splitAddrZ(s,limit){
+  const t=norm(s); if(!t) return ["",""];
+  let w=0,cut=t.length;
+  for(let i=0;i<t.length;i++){ const cw=/[\x20-\x7E\uFF61-\uFF9F]/.test(t[i])?0.5:1; if(w+cw>limit){cut=i;break;} w+=cw; }
+  return cut>=t.length?[t,""]:[t.slice(0,cut),t.slice(cut)];
+}
+function buildModel(rows){
+  const head=rows[0].map(norm), idx={};
+  head.forEach((h,i)=>{ if(!(h in idx)) idx[h]=i; });
+  const g=(r,key)=>{ const i=idx[key]; return i!==undefined&&i>=0&&i<r.length?norm(r[i]):""; };
+  const emps=[];
+  for(let r=1;r<rows.length;r++){
+    const row=rows[r]; if(!row||row.every(c=>!norm(c))) continue;
+    const e={ code:g(row,SRC.code), name:g(row,SRC.name), kana:g(row,SRC.kana),
+      sex:sexConv(g(row,SRC.sex)), birth:toYmd(g(row,SRC.birth)), addr:g(row,SRC.addr),
+      mail:g(row,SRC.mail), ptype:g(row,SRC.ptype), spExist:g(row,SRC.spExist), family:[], per:{} };
+    PER_FIELDS.forEach(f=>{ e.per[f.key] = (f.key==="性別"? e.sex : f.def); });
+    if(e.spExist==="有" && (g(row,SRC.spName)||g(row,SRC.spKana))){
+      e.family.push({ name:g(row,SRC.spName), kana:g(row,SRC.spKana), birth:toYmd(g(row,SRC.spBirth)), rel:"配偶者", isSpouse:true });
+    }
+    for(let n=1;n<=20;n++){
+      const p="扶養親族等情報("+n+") ";
+      const nm=g(row,p+"氏名"), kn=g(row,p+"フリガナ");
+      if(!nm&&!kn) continue;
+      e.family.push({ name:nm, kana:kn, birth:toYmd(g(row,p+"生年月日")), rel:g(row,p+"続柄"), isSpouse:false });
+    }
+    emps.push(e);
+  }
+  return {header:head, employees:emps};
+}
+
+/* ============================================================
+   変換＋チェック
+   ============================================================ */
+function cfg(){
+  const d={};
+  document.querySelectorAll("#defTable [data-key]").forEach(i=>d[i.dataset.key]=i.value);
+  return {
+    digits:7,
+    addrLen:20,
+    hire:"",
+    ido:"",
+    rousaiHi:document.getElementById("rousaiHi").value,
+    rousaiKind:document.getElementById("rousaiKind").value.trim(),
+    koyoHi:document.getElementById("koyoHi").value,
+    koyoKind:document.getElementById("koyoKind").value.trim(),
+    spKbn:document.getElementById("spKbn").value,
+    depKbn:document.getElementById("depKbn").value,
+    shotoku:document.getElementById("shotoku").value,
+    shakai:document.getElementById("shakai").value,
+    addrKbn:document.getElementById("addrKbn").value,
+    r8auto:document.getElementById("r8auto").value==="1",
+    emptyStyle:"bare",
+    defaults:d
+  };
+}
+function r8map(kbn){
+  switch(kbn){
+    case "源泉控除対象配偶者": return "源泉控除対象配偶者";
+    case "源泉控除対象配偶者以外の配偶者": return "源泉控除対象配偶者以外の配偶者";
+    case "対象(主たる給与の扶養)": return "源泉控除対象/16歳未満の扶養親族";
+    case "対象(従たる給与の扶養)": return "従たる給与の扶養";
+    case "対象外(他の所得者の扶養)": return "他の所得者の扶養";
+    default: return "対象外";
+  }
+}
+function empNo(code,digits){
+  const t=norm(code).replace(/[^\dA-Za-z]/g,"");
+  if(!t) return "";
+  return (digits>0 && /^\d+$/.test(t)) ? t.padStart(digits,"0") : t;
+}
+function checkRow(row, req, len, en, fmt, soft, label, errs, warns){
+  for(const k of req) if(!row[k]) errs.push(label+"：必須項目「"+k+"」が空欄です。");
+  for(const k in len){
+    const v=row[k]; if(!v) continue;
+    const L=len[k];
+    if(L.z && zWidth(v)>L.z) errs.push(label+"：「"+k+"」が全角換算"+L.z+"文字を超えています（"+v+"）。");
+    if(L.h && String(v).length>L.h) errs.push(label+"：「"+k+"」が"+L.h+"文字を超えています。");
+  }
+  for(const k in en){
+    const v=row[k]; if(!v) continue;
+    if(en[k].indexOf(v)<0) errs.push(label+"：「"+k+"」の値『"+v+"』はレイアウトの選択肢にありません。");
+  }
+  if(soft) for(const k in soft){
+    const v=row[k]; if(!v) continue;
+    if(soft[k].indexOf(v)<0) warns.push(label+"：「"+k+"」の値『"+v+"』は当ツールの候補一覧にありません。FXの画面表示と一致しているかご確認ください。");
+  }
+  if(fmt) for(const k in fmt){
+    const v=row[k]; if(!v) continue; const F=fmt[k];
+    if(F.digits && !(new RegExp("^\\d{1,"+F.digits+"}$").test(v))) errs.push(label+"：「"+k+"」は数字"+F.digits+"桁で入力してください（"+v+"）。");
+    if(F.zip && !/^\d{7}$|^\d{3}-\d{4}$/.test(v)) errs.push(label+"：「"+k+"」は数字7桁または000-0000形式です。");
+    if(F.mynum && !/^\d{12}$/.test(v)) errs.push(label+"：「"+k+"」は数字12桁（チェックディジット要）です。");
+    if(F.hhmm && !/^\d{1,2}:\d{2}$/.test(v)) errs.push(label+"：「"+k+"」は「8:00」のような時分形式で入力してください（"+v+"）。");
+  }
+  for(const k of ["生年月日","入社日","異動年月日","有休付与起算日","家族:生年月日"]){
+    const v=row[k]; if(v && !isYmd(v)) errs.push(label+"：「"+k+"」の日付形式が不正です（"+v+"）。");
+  }
+}
+function convert(model,c){
+  const base=[],fam=[],errs=[],warns=[];
+  const targets=model.employees.filter(e=>{
+    if(document.getElementById("onlyEmployee").checked && e.ptype && e.ptype!=="従業員") return false;
+    if(document.getElementById("skipNoName").checked && !e.name) return false;
+    return true;
+  });
+  const seen={};
+  for(const e of targets){
+    const no=empNo(e.code,c.digits);
+    const nm=e.name||"(氏名なし)";
+    if(no && seen[no]) errs.push("社員番号 "+no+" が重複しています（"+nm+"）。");
+    seen[no]=1;
+    const [sei,mei]=splitName(e.name), [ksei,kmei]=splitName(e.kana);
+    const fullName=mei?sei+"\u3000"+mei:sei;
+    if(!mei) warns.push("「"+nm+"」は氏名を姓・名に分割できませんでした（姓のみで出力）。");
+    const [a1,a2]=splitAddrZ(e.addr,c.addrLen);
+    if(a2 && zWidth(a2)>20) warns.push("「"+nm+"」の住所が全角換算40文字を超えるため、下段で切り捨てが発生する可能性があります。");
+
+    const row={};
+    HDR_BASE.forEach(h=>row[h]=c.defaults[h]!==undefined?c.defaults[h]:"");
+    PER_FIELDS.forEach(f=>row[f.key]=PAD_FIELDS[f.key]?padCode(e.per[f.key],PAD_FIELDS[f.key]):(e.per[f.key]||""));
+    Object.assign(row,{
+      "社員番号":no,
+      "社員氏名(姓)":sei,"社員氏名(名)":mei,
+      "社員氏名ﾌﾘｶﾞﾅ(姓)":ksei,"社員氏名ﾌﾘｶﾞﾅ(名)":kmei,
+      "旧姓":"","個人番号":"",
+      "生年月日":e.birth,
+      "住所上段":a1,"住所下段":a2.slice(0,40),
+      "Ｅメール１":e.mail,
+      "入社日":c.hire,"異動年月日":c.ido,
+      "世帯主:氏名":fullName,
+      "配偶者の有無":(e.family.some(f=>f.isSpouse)||e.spExist==="有")?"あり":"なし",
+      /* ★v3: 労災・雇用の被保険者種類を明示出力 */
+      "労災:被保険者":c.rousaiHi,
+      "労災:被保険者種類":c.rousaiKind,
+      "雇用:被保険者":c.koyoHi,
+      "雇用:被保険者種類":c.koyoKind,
+      /* ★v4: 有休関連（GB〜GG列）は明細を空欄で出力 */
+      "有休1日の時間数":"",
+      "有休の付与・繰越":"",
+      "有休付与パターン参照先":"",
+      "有休付与パターンコード":"",
+      "有休付与起算日":""
+    });
+    RO_BASE.forEach(h=>row[h]="");
+    checkRow(row,REQ_BASE,LEN_BASE,ENUM,FMT_BASE,SOFT_ENUM,"基本情報［"+nm+"］",errs,warns);
+    base.push(HDR_BASE.map(h=>row[h]));
+
+    for(const f of e.family){
+      const [fs,fm]=splitName(f.name), [fks,fkm]=splitName(f.kana);
+      const kbn=f.isSpouse?c.spKbn:c.depKbn;
+      const r={}; HDR_FAM.forEach(h=>r[h]="");
+      Object.assign(r,{
+        "社員番号":no,
+        "家族:氏名(姓)":fs,"家族:氏名(名)":fm,
+        "家族:氏名ﾌﾘｶﾞﾅ(姓)":fks,"家族:氏名ﾌﾘｶﾞﾅ(名)":fkm,
+        "家族:個人番号":"",
+        "家族:続柄":f.isSpouse?"配偶者":f.rel,
+        "家族:生年月日":f.birth,
+        "家族:扶養区分":kbn,
+        "家族:同居老親区分":f.isSpouse?"":"対象外",
+        "家族:障害者区分":"対象外",
+        "家族:住所区分":c.addrKbn,
+        "家族:収入・所得の入力方法":c.shotoku,
+        "家族:非居住者である親族":"非該当",
+        "家族:社会保険の被扶養者":c.shakai,
+        "家族:退職手当等を有する配偶者・扶養親族":"非該当",
+        "家族:扶養区分(令和8年分以後)":c.r8auto?r8map(kbn):"",
+        "家族:特定扶養・特定親族(令和8年分以後)":""
+      });
+      if(!fm) errs.push("家族［"+nm+" / "+f.name+"］：氏名(名)が必須ですが、姓名に分割できませんでした。");
+      if(!f.birth) warns.push("家族［"+nm+" / "+f.name+"］の生年月日が空欄です。");
+      if(r["家族:続柄"] && zWidth(r["家族:続柄"])>3) warns.push("家族［"+nm+" / "+f.name+"］の続柄「"+r["家族:続柄"]+"」が3文字を超えるため切り捨てられます。");
+      RO_FAM.forEach(h=>r[h]="");
+      checkRow(r,REQ_FAM,LEN_FAM,ENUM_FAM,null,null,"家族［"+nm+" / "+f.name+"］",errs,warns);
+      fam.push(HDR_FAM.map(h=>r[h]));
+    }
+  }
+  return {base,fam,errs,warns,count:targets.length};
+}
+
+/* ============================================================
+   CSV生成（UTF-8 BOM / CRLF）
+   ============================================================ */
+function csvField(v,style){
+  const s=v==null?"":String(v);
+  if(s==="") return style==="quote"?'""':"";
+  return /[",\r\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;
+}
+function buildCsv(header,rows,style){
+  const lines=[header.map(h=>csvField(h,"bare")).join(",")];
+  for(const r of rows) lines.push(r.map(v=>csvField(v,style)).join(","));
+  return lines.join("\r\n")+"\r\n";
+}
+function download(name,text){
+  const blob=new Blob([new Uint8Array([0xEF,0xBB,0xBF]),text],{type:"text/csv"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download=name;
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500);
+}
+
+/* ============================================================
+   UI
+   ============================================================ */
+const $=id=>document.getElementById(id);
+function msg(el,cls,text){ el.innerHTML='<div class="msg '+cls+'">'+text+"</div>"; }
+function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;"); }
+function table(el,head,rows){
+  let h="<thead><tr>"+head.map(x=>"<th>"+esc(x)+"</th>").join("")+"</tr></thead><tbody>";
+  h+=rows.map(r=>"<tr>"+r.map(x=>"<td>"+(x===""?"&nbsp;":esc(x))+"</td>").join("")+"</tr>").join("");
+  el.innerHTML=h+"</tbody>";
+}
+$("drop").addEventListener("click",()=>$("file").click());
+["dragenter","dragover"].forEach(ev=>$("drop").addEventListener(ev,e=>{e.preventDefault();$("drop").classList.add("hot");}));
+["dragleave","drop"].forEach(ev=>$("drop").addEventListener(ev,e=>{e.preventDefault();$("drop").classList.remove("hot");}));
+$("drop").addEventListener("drop",e=>{ if(e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]); });
+$("file").addEventListener("change",e=>{ if(e.target.files.length) handleFile(e.target.files[0]); });
+
+async function handleFile(file){
+  try{
+    msg($("loadMsg"),"warn","読み込み中…");
+    let rows;
+    if(/\.xlsx$/i.test(file.name)) rows=await parseXlsx(await file.arrayBuffer());
+    else{
+      const buf=await file.arrayBuffer();
+      let t=new TextDecoder("utf-8",{fatal:false}).decode(buf);
+      if(/\uFFFD/.test(t)){ try{ t=new TextDecoder("shift_jis").decode(buf); }catch(_){} }
+      rows=parseCsvText(t.replace(/^\uFEFF/,""));
+    }
+    if(!rows||rows.length<2) throw new Error("データ行が見つかりませんでした。");
+    MODEL=buildModel(rows);
+    if(!MODEL.header.includes(SRC.name)) throw new Error("「本人情報 氏名」列が見つかりません。達人の切出ファイルかご確認ください。");
+    renderAll();
+    msg($("loadMsg"),"ok",file.name+" を読み込みました（"+MODEL.employees.length+"件）。");
+  }catch(err){ msg($("loadMsg"),"err","読込エラー："+err.message); }
+}
+function renderAll(){
+  const e=MODEL.employees;
+  table($("srcTable"),["コード","氏名","フリガナ","性別","生年月日","個人種別","配偶者","扶養親族数"],
+    e.slice(0,20).map(x=>[x.code,x.name,x.kana,x.sex||"（空欄）",x.birth,x.ptype,x.spExist,String(x.family.filter(f=>!f.isSpouse).length)]));
+  $("loadInfo").classList.remove("hide");
+  renderPer(); renderDefaults();
+  $("secPer").classList.remove("hide"); $("secOpt").classList.remove("hide"); $("secOut").classList.remove("hide");
+  $("secPer").scrollIntoView({behavior:"smooth",block:"start"});
+}
+function renderPer(){
+  const list=MODEL.employees;
+  let h="<thead><tr><th>コード</th><th>氏名</th>"+PER_FIELDS.map(f=>"<th>"+esc(f.label)+(f.hint?"<br><span class='note'>"+f.hint+"</span>":"")+"</th>").join("")+"</tr></thead><tbody>";
+  list.forEach((x,i)=>{
+    h+="<tr><td>"+esc(x.code)+"</td><td>"+esc(x.name)+"</td>";
+    for(const f of PER_FIELDS){
+      const v=x.per[f.key]||"";
+      if(f.type==="enum"){
+        const opts=(ENUM[f.key]||[]).map(o=>'<option'+(o===v?" selected":"")+'>'+esc(o)+'</option>').join("");
+        h+='<td><select data-i="'+i+'" data-k="'+esc(f.key)+'"><option value=""></option>'+opts+'</select></td>';
+      } else {
+        h+='<td><input type="text" data-i="'+i+'" data-k="'+esc(f.key)+'" value="'+esc(v)+'"></td>';
+      }
+    }
+    h+="</tr>";
+  });
+  $("perTable").innerHTML=h+"</tbody>";
+  $("perTable").querySelectorAll("[data-i]").forEach(el=>el.addEventListener("change",ev=>{
+    const k=ev.target.dataset.k;
+    let v=ev.target.value;
+    if(PAD_FIELDS[k]){ v=padCode(v,PAD_FIELDS[k]); ev.target.value=v; }
+    MODEL.employees[+ev.target.dataset.i].per[k]=v;
+  }));
+  $("bulkField").innerHTML=PER_FIELDS.map(f=>'<option value="'+esc(f.key)+'">'+esc(f.label)+'</option>').join("");
+}
+$("bulkApply").addEventListener("click",()=>{
+  if(!MODEL) return;
+  const k=$("bulkField").value;
+  let v=$("bulkValue").value.trim();
+  if(PAD_FIELDS[k]) v=padCode(v,PAD_FIELDS[k]);
+  MODEL.employees.forEach(e=>e.per[k]=v);
+  renderPer();
+});
+function renderDefaults(){
+  if($("defTable").dataset.done) return;
+  let h="<thead><tr><th style='width:42%'>項目</th><th>全社員に設定する値</th></tr></thead><tbody>";
+  h+=DEFAULTS.map(([k,v])=>{
+    if(ENUM[k]){
+      const opts=ENUM[k].map(o=>'<option'+(o===v?" selected":"")+'>'+esc(o)+'</option>').join("");
+      return '<tr><td>'+esc(k)+'</td><td><select data-key="'+esc(k)+'">'+opts+'</select></td></tr>';
+    }
+    return '<tr><td>'+esc(k)+'</td><td><input type="text" data-key="'+esc(k)+'" value="'+esc(v)+'"></td></tr>';
+  }).join("");
+  $("defTable").innerHTML=h+"</tbody>";
+  $("defTable").dataset.done="1";
+}
+let OUT=null;
+$("run").addEventListener("click",()=>{
+  if(!MODEL) return;
+  const c=cfg();
+  OUT=convert(MODEL,c); OUT.style=c.emptyStyle;
+  let html="";
+  if(OUT.errs.length){
+    const u=[...new Set(OUT.errs)];
+    html+='<div class="msg err"><b>エラー '+u.length+'件：このままではFX側で読み込めません。</b><br><br>'
+       +u.slice(0,40).map(esc).join("<br>")+(u.length>40?"<br>…ほか"+(u.length-40)+"件":"")+"</div>";
+  }else{
+    html+='<div class="msg ok">必須・桁数・選択肢チェックはすべて通過しました。社員 '+OUT.count+' 件 ／ 家族 '+OUT.fam.length+' 件</div>';
+  }
+  if(OUT.warns.length){
+    const u=[...new Set(OUT.warns)];
+    html+='<div class="msg warn"><b>要確認 '+u.length+'件</b><br>'+u.slice(0,20).map(esc).join("<br>")+(u.length>20?"<br>…ほか":"")+"</div>";
+  }
+  html+='<div class="msg info">事業所コード・部署コード・給与体系コードは桁数に満たない数字を左0埋めします。「有休1日の時間数」（GB列）「有休の付与・繰越」（GC列）は空欄で出力します。</div>';
+  $("resMsg").innerHTML=html;
+  const cols=["社員番号","社員氏名(姓)","社員氏名(名)","性別","生年月日","住所上段","事業所コード","部署コード","役社員区分","給与体系コード","労災:被保険者","労災:被保険者種類"];
+  table($("prev1"),cols,OUT.base.slice(0,10).map(r=>cols.map(x=>r[HDR_BASE.indexOf(x)])));
+  const fc=["社員番号","家族:氏名(姓)","家族:氏名(名)","家族:氏名ﾌﾘｶﾞﾅ(姓)","家族:氏名ﾌﾘｶﾞﾅ(名)","家族:続柄","家族:生年月日","家族:扶養区分","家族:扶養区分(令和8年分以後)"];
+  table($("prev2"),fc,OUT.fam.slice(0,15).map(r=>fc.map(x=>r[HDR_FAM.indexOf(x)])));
+  $("result").classList.remove("hide");
+  $("dl1").disabled=$("dl2").disabled=OUT.errs.length>0;
+  $("runMsg").textContent=OUT.errs.length?"エラーを解消するとダウンロードできます。":"";
+});
+$("dl1").addEventListener("click",()=>{ if(OUT&&!OUT.errs.length) download("社員読込用_基本情報等.csv",buildCsv(HDR_BASE,OUT.base,OUT.style)); });
+$("dl2").addEventListener("click",()=>{ if(OUT&&!OUT.errs.length) download("社員読込用_家族.csv",buildCsv(HDR_FAM,OUT.fam,OUT.style)); });
+</script>
+</body>
+</html>
